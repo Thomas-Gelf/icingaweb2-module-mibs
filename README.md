@@ -48,6 +48,6 @@ tools.
 
 ### Error Reporting
 
-Where possible, MIB processing[Mibs](library%2FMibs) errors are being reported:
+Where possible, MIB processing errors are being reported:
 
 ![Error Reporting](doc/screenshot/00_preview/03_mib_error_reporting.png)
