@@ -22,6 +22,9 @@ my $mib = new SNMP::MIB::Compiler;
 $mib->{'make_dump'}  = 0;
 $mib->{'use_dump'}   = 0;
 $mib->{'do_imports'} = 0;
+$mib->{'allow_underscore'} = 1;
+$mib->{'allow_lowcase_hstrings'} = 1;
+$mib->{'allow_lowcase_bstrings'} = 1;
 
 my $s = Stream->new($fh);
 $mib->{'stream'} = $s;
@@ -34,6 +37,7 @@ use JSON;
 unless ($r) {
   my $err = "Unable to parse MIB:";
   foreach my $msg (@{$mib->{'msg'}}) {
+    $err .= ' Line ' . $msg->{'line'} . ':' if $msg->{'line'};
     $err .= ' ' . $msg->{'msg'};
   }
   print "$err\n";

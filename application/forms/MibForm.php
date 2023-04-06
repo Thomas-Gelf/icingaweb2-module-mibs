@@ -1,15 +1,17 @@
 <?php
 
-namespace Icinga\Module\Snmp\Forms;
+namespace Icinga\Module\Mibs\Forms;
 
 use Exception;
 use Icinga\Application\Icinga;
 use Icinga\Authentication\Auth;
 use Icinga\Exception\IcingaException;
 use Icinga\Module\Director\Web\Form\QuickForm;
-use Icinga\Module\Snmp\MibParser;
-use Icinga\Module\Snmp\MibUpload;
+use Icinga\Module\Mibs\Object\MibFile;
+use Icinga\Module\Mibs\MibParser;
+use Icinga\Module\Mibs\Object\MibUpload;
 use Icinga\Web\Notification;
+use Ramsey\Uuid\Uuid;
 
 class MibForm extends QuickForm
 {
@@ -59,33 +61,17 @@ class MibForm extends QuickForm
 
             $source = file_get_contents($tmpFile);
             unlink($tmpFile);
-            try {
-                $parsed = MibParser::parseString($source);
-            } catch (Exception $e) {
-                $this->addError($originalFilename . ' failed: ' . $e->getMessage());
-                Notification::error($originalFilename . ' failed: ' . $e->getMessage());
-                $this->failed = true;
-                continue;
-            }
-            if (empty($parsed)) {
-                Notification::error('Could not parse ' . $originalFilename);
-                $this->addError('Could not parse ' . $originalFilename);
-                $this->failed = true;
-                continue;
-            }
 
             $this->fileCount++;
             // $this->addError(' Missing: ' . implode(', ', array_keys((array) $parsed->imports)));
-            MibUpload::create([
-                'username'          => Auth::getInstance()->getUser()->getUsername(),
-                'upload_time'       => (int) (microtime(true) * 1000),
-                'client_ip'         => $_SERVER['REMOTE_ADDR'],
-                'mib_name'          => $parsed->name,
-                'imports_from'      => json_encode(array_keys((array) $parsed->imports)),
-                'original_filename' => $originalFilename,
-                'raw_mib_file'      => $source,
-                'parsed_mib'        => json_encode($parsed),
-            ])->store($this->db);
+            $checkSum = sha1($source, true);
+            if (MibFile::exists($checkSum, $this->db)) {
+                $mibFile = MibFile::load($checkSum, $this->db);
+            } else {
+                $mibFile = MibFile::fromFileString($source);
+                $mibFile->store($this->db);
+            }
+            MibUpload::forMibFile($mibFile, $originalFilename)->store($this->db);
         }
 
         return true;
@@ -97,7 +83,7 @@ class MibForm extends QuickForm
             try {
                 $this->processUploadedSource();
             } catch (Exception $e) {
-                $this->addError($e->getMessage());
+                $this->addError($e->getMessage() . $e->getTraceAsString());
                 return;
             }
 

@@ -1,6 +1,6 @@
 <?php
 
-namespace Icinga\Module\Snmp;
+namespace Icinga\Module\Mibs;
 
 use Icinga\Module\Director\Data\Db\DbConnection;
 

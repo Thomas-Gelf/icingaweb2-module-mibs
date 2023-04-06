@@ -1,38 +1,214 @@
 <?php
 
-namespace Icinga\Module\Snmp\Controllers;
+namespace Icinga\Module\Mibs\Controllers;
 
-use dipl\Html\Html;
-use dipl\Html\Icon;
-use dipl\Html\Link;
-use dipl\Web\Widget\NameValueTable;
-use Icinga\Module\Snmp\ActionController;
-use Icinga\Module\Snmp\Forms\MibForm;
-use Icinga\Module\Snmp\MibParser;
-use Icinga\Module\Snmp\MibUpload;
-use Icinga\Module\Snmp\Web\Table\MibUploadsTable;
+use gipfl\IcingaWeb2\Link;
+use gipfl\IcingaWeb2\Widget\NameValueTable;
+use gipfl\Json\JsonString;
+use gipfl\Web\Widget\Hint;
+use Icinga\Module\Mibs\ActionController;
+use Icinga\Module\Mibs\Formatting;
+use Icinga\Module\Mibs\Forms\MibForm;
+use Icinga\Module\Mibs\Object\MibFile;
+use Icinga\Module\Mibs\MibTree;
+use Icinga\Module\Mibs\Object\MibUpload;
+use Icinga\Module\Mibs\Object\Mib;
+use Icinga\Module\Mibs\Processing\ParsedMibProcessor;
+use Icinga\Module\Mibs\Web\Table\MibsTable;
+use Icinga\Module\Mibs\Web\Table\NodesTable;
+use Icinga\Module\Mibs\Web\Table\ObjectDetailsTable;
+use Icinga\Module\Mibs\Web\Tree\MibTreeRenderer;
+use ipl\Html\Html;
+use ipl\Html\HtmlString;
+use ipl\Html\Table;
+use Ramsey\Uuid\Uuid;
 
 class MibController extends ActionController
 {
+    public function indexAction()
+    {
+        $this->addSingleTab('MIB');
+        $mib = Mib::load(hex2bin($this->params->getRequired('checksum')), $this->db());
+        $table = new NodesTable($mib);
+        $total = (int) $this->db()->getDbAdapter()->fetchOne($table->select('COUNT(*)'));
+        $this->addTitle(MibsTable::label($mib) . ': ' . sprintf($this->translate('contains %d OIDs'), $total));
+        $this->showTable($table, $this->translate('There are no processed nodes in this MIB file'));
+    }
+
     public function uploadAction()
     {
-        $form = (new MibForm())
-            ->setDb($this->db());
-            $this->addSingleTab('Add');
-            $this->addTitle($this->translate('Add SNMP MIB file'));
+        $this->addSingleTab($this->translate('MIB Upload'));
+        $this->addTitle($this->translate('Add SNMP MIB file(s)'));
+        $form = (new MibForm())->setDb($this->db())->handleRequest();
+        $this->content()->add($form)->addAttributes(['class' => 'icinga-module module-director']);
+    }
 
-        $this->content()->add($form->handleRequest())
-            ->addAttributes(['class' => 'icinga-module module-director']);
+    public function treeAction()
+    {
+        $mibFile = $this->requireMibFile();
+        $this->mibTabs($mibFile)->activate('tree');
+        $parsed = $mibFile->getParsedMib();
+        $this->addMibTitle($this->translate('MIB tree'), $parsed->name);
+        try {
+            $tree = new MibTreeRenderer(new MibTree($parsed));
+            $this->content()->add($tree)->addAttributes(['class' => 'icinga-module module-director']);
+        } catch (\Exception $e) {
+            $this->content()->add(Hint::error($e->getMessage()));
+        }
+    }
+
+    public function parsedAction()
+    {
+        $mibFile = $this->requireMibFile();
+        $this->mibTabs($mibFile)->activate('parsed');
+        $parsed = $mibFile->getParsedMib();
+        $this->addMibTitle($this->translate('Parsed File'), $parsed->name);
+        $this->content()->add(Html::tag('pre', print_r($parsed, 1)));
+    }
+
+    public function rawAction()
+    {
+        $mibFile = $this->requireMibFile();
+        $this->mibTabs($mibFile)->activate('raw');
+        $this->addTitle($this->translate('Uploaded raw MIB File'));
+        if ($mibFile->hasProcessingErrors()) {
+            $this->content()->add(
+                Hint::error(preg_replace('/Parser exited with 1: STDOUT: /', '', $mibFile->getLastProcessingError()))
+            );
+        }
+        $string = '';
+        $cnt = 0;
+        $lines = preg_split('/\r?\n/', $mibFile->get('content'));
+        $length = strlen((string) count($lines));
+        $pre = Html::tag('pre', ['style' => 'height: 100%; overflow-y: auto']);
+        foreach ($lines as $line) {
+            $cnt++;
+            $pre->add([
+                // Html::tag('span', ['class' => 'ignore-on-select'], sprintf('%' . $length . "d ", $cnt)),
+                new HtmlString('<span class="ignore-on-select">' . sprintf('%' . $length . "d ", $cnt) . '</span>'),
+                "$line\n"
+            ]);
+            // .ignore-on-select
+            $string .= sprintf('%' . $length . "d %s\n", $cnt, $line);
+        }
+        $this->content()->add($pre);
+    }
+
+    protected function objectsTable($mibName, $objects, $url)
+    {
+        $table = new Table();
+        $table->setAttributes([
+            'class' => 'common-table table-row-selectable',
+            'data-base-target' => '_next',
+        ]);
+        foreach ((array) $objects as $name => $trap) {
+            $table->add($table::row([
+                Link::create($mibName . '::' . $name, $url, [
+                    'name'    => $name,
+                    'mibName' => $mibName,
+                ])
+            ]));
+        }
+
+        return $table;
+    }
+
+    public function trapsAction()
+    {
+        $mibFile = $this->requireMibFile();
+        $this->mibTabs($mibFile)->activate('traps');
+        $parsed = $mibFile->getParsedMib();
+        $this->addMibTitle($this->translate('Traps'), $parsed->name);
+        $this->content()->add($this->objectsTable($parsed->name, $parsed->traps, 'mibs/mib/trap'));
+        // $this->content()->add(Html::tag('pre', print_r($parsed->traps, 1)));
+        // ->{trapName}->type = 'NOTIFICATION-TYPE', ->status = 'current', '->description, ->oid[ oidName, numId ]
+        // ->{trapName}->objects =
+    }
+
+    public function typesAction()
+    {
+        $mibFile = $this->requireMibFile();
+        $this->mibTabs($mibFile)->activate('types');
+        $parsed = $mibFile->getParsedMib();
+        $this->addMibTitle($this->translate('Types'), $parsed->name);
+        $this->content()->add($this->objectsTable($parsed->name, $parsed->types, 'mibs/mib/type'));
+        // ->{typeName}->status = 'current', ->description,
+        //             ->syntax->type = INTEGER, BITS, ... BITS hat auch values
+        //             ->syntax->values = [1 => val, 3, val]
+        //            _->syntax->range = { min = 0, max = 100 }
+        //            _->syntax->size->range = { min = 0, max = 100 }
+        // ->{typeName}->reference = "...defined in RFC ..."
+        // ->{typeName}->display-hint = "1x:" (hat auch type)
+        // bsp: "2d-1d-1d,1d:1d:1d.1d,1a1d:1d" -> SNMPv2-TC -> DateAndTime
+        // ->{typeName}->size]->choice = { 0 => 8, 1 => 11 }
+        // Wenn ->{typeName}->type = SEQUENCE, dann ->items = { itemName =  { type = TypeName }
+        //                  wobei Type immer entweder ein definierter oder ein Primitive ist
+        // interessant: SNMPv2-TC ->RowStatus
+        // ->{typeName}->implicit = true  (SNMPv2-SMI)
+        // ->{typeName}->tag = [0 => APPLICATION, 1 => 2]  (SNMPv2-SMI)
+        // Wenn ->{typeName}->type = CHOICE, dann ->items = { itemName =  { type = TypeName }
+    }
+
+    public function macrosAction()
+    {
+        $mibFile = $this->requireMibFile();
+        $this->mibTabs($mibFile)->activate('macros');
+        $parsed = $mibFile->getParsedMib();
+        $this->addMibTitle($this->translate('Macros'), $parsed->name);
+        $this->content()->add([
+            $this->translate('This MIB defines the following Macros:'),
+            Html::tag('br'),
+            Html::tag('ul', Html::wrapEach($parsed->macros, 'li')),
+        ]);
+        //  SNMPv2-TC -> macros = [ 0 => 'TEXTUAL-CONVENTION' ]
+        //  SNMPv2-CONF -> macros = [ 0 => OBJECT-GROUP, 1 => NOTIFICATION-GROUP,
+        //                          2 => MODULE-COMPLIANCE, 3 => AGENT-CAPABILITIES ]
+        // SNMPv2-SMI: macros-> MODULE-IDENTITY, OBJECT-IDENTITY, OBJECT-TYPE, NOTIFICATION-TYPE
     }
 
     public function processAction()
     {
-        $this->addSingleTab('Process MIB');
+        $mibFile = $this->requireMibFile();
+        $this->mibTabs($mibFile)->activate('process');
         $this->addTitle($this->translate('Process uploaded MIB file'));
-        $id = $this->params->getRequired('id');
-        $db = $this->db();
-        $upload = MibUpload::load($id, $db);
-        $parsed = json_decode($upload->get('parsed_mib'));
+        $parsed = $mibFile->getParsedMib();
+        if ($parsed === null) {
+            $upload = MibUpload::loadMostRecentForFile($mibFile);
+            $this->addTitle($upload->get('original_filename'));
+            if ($mibFile->hasProcessingErrors()) {
+                $hint = Hint::error($mibFile->getLastProcessingError());
+            } else {
+                $hint = Hint::warning($this->translate('This MIB has not yet been processed'));
+            }
+            $this->content()->add($hint);
+            return;
+        }
+
+        [$shortName, $identity] = ParsedMibProcessor::getIdentity($parsed);
+
+        $revisions = null;
+        if ($identity === null) {
+            $this->content()->add(Hint::warning('This MIB has no MODULE-IDENTITY'));
+        } else {
+            $table = new NameValueTable();
+            $table->addNameValuePairs([
+                $this->translate('Description') => $this->pre(Formatting::stringCleanup($identity->description)),
+                $this->translate('Organization') => Formatting::stringCleanup($identity->organization),
+                $this->translate('Organization') => Formatting::stringCleanup($identity->organization),
+                $this->translate('Contact Info') => $this->pre(Formatting::stringCleanup($identity->{'contact-info'})),
+                $this->translate('Last Update') => Formatting::stringCleanup($identity->{'last-updated'}),
+            ]);
+            $this->content()->add($table);
+            if (isset($identity->revision)) {
+                $revisions = new NameValueTable();
+                foreach ($identity->revision as $rev) {
+                    $revisions->addNameValueRow(
+                        Formatting::stringCleanup($rev->revision),
+                        $this->pre(Formatting::stringCleanup($rev->description))
+                    );
+                }
+            }
+        }
 
         $dependencies = new NameValueTable();
         if (empty($parsed->imports)) {
@@ -42,40 +218,188 @@ class MibController extends ActionController
                 Html::tag('strong', null, 'MIB'),
                 Html::tag('strong', null, 'Imported Objects')
             );
-            foreach ($parsed->imports as $import => $objects) {
-                if ($refId = MibUpload::getNewestIdForName($import, $db)) {
-                    $import = Link::create($import, 'snmp/mib/process', ['id' => $refId]);
+            $imports = (array) $parsed->imports;
+            ksort($imports);
+            $db = $this->db();
+            foreach ($imports as $import => $objects) {
+                if ($refId = MibUpload::getNewestUuidForName($import, $db)) {
+                    $import = Link::create($import, 'mibs/mib/process', [
+                        'uuid' => Uuid::fromBytes($refId)->toString()
+                    ]);
                 }
 
                 $dependencies->addNameValueRow($import, implode(', ', $objects));
             }
         }
         $this->content()->add([
+            Html::tag('h3', 'Imports'),
             $dependencies,
-            Html::tag('h2', null, 'MIB Tree'),
-            MibParser::getHtmlTreeFromParsedMib($parsed),
-        ])->addAttributes(['class' => 'icinga-module module-director']);
+            Html::tag('h3', 'Revisions'),
+            $revisions,
+        ]);
     }
 
-    public function uploadsAction()
+    public function objectAction()
     {
-        $this->setAutorefreshInterval(1);
-        $this->setSnmpTabs()->activate('mib_uploads');
-        $this->addTitle('Upload your MIB files');
-        $this->actions()->add(
-            Link::create($this->translate('Add'), 'snmp/mib/upload', null, [
-                'class' => 'icon-plus',
-                'data-base-target' => '_next'
-            ])
-        );
-
-        $table = new MibUploadsTable($this->db());
-        if (count($table)) {
-            $table->renderTo($this);
-        } else {
-            $this->content()
-                ->add(Icon::create('ok'))
-                ->add('There are no pending MIB files in our queue');
+        $oid = $this->requireOid();
+        $mibName = $this->params->getRequired('mibName');
+        $name = $this->params->getRequired('name');
+        $this->addSingleTab('Object Details');
+        $this->addTitle("$mibName::$name ($oid)");
+        if (! $this->assertValidOidOrShowError($oid)) {
+            return;
         }
+
+        $mib = $this->requireParsedMibByName($mibName);
+
+        if (!isset($mib->nodes->$name)) {
+            $this->content()->add(Hint::error("There is no $name node in $mibName"));
+            return;
+        }
+
+        $node = $mib->nodes->$name;
+        $this->content()->add(new ObjectDetailsTable($mibName, $name, $node, $oid));
+    }
+
+    public function trapAction()
+    {
+        $mibName = $this->params->getRequired('mibName');
+        $name = $this->params->getRequired('name');
+        $this->addSingleTab($this->translate('Trap Details'));
+        $mib = $this->requireParsedMibByName($mibName);
+        if (!isset($mib->traps->$name)) {
+            $this->content()->add(Hint::error("There is no $name trap in $mibName"));
+            return;
+        }
+        $trap = $mib->traps->$name;
+        if (isset($trap->oid)) {
+            $oid = implode('.', $trap->oid); // TODO: full OID lookup
+            $this->addTitle("$mibName::$name ($oid)");
+
+            $this->content()->add(new ObjectDetailsTable($mibName, $name, $trap, $oid));
+        } else {
+            $this->addTitle("$mibName::$name");
+
+            $this->content()->add(new ObjectDetailsTable($mibName, $name, $trap));
+        }
+    }
+
+    public function typeAction()
+    {
+        $mibName = $this->params->getRequired('mibName');
+        $name = $this->params->getRequired('name');
+        $this->addSingleTab($this->translate('Type Details'));
+        $mib = $this->requireParsedMibByName($mibName);
+        if (!isset($mib->types->$name)) {
+            $this->content()->add(Hint::error("There is no $name type in $mibName"));
+            return;
+        }
+        $type = $mib->types->$name;
+        $this->addTitle("$mibName::$name");
+
+        $this->content()->add(new ObjectDetailsTable($mibName, $name, $type));
+    }
+
+    protected function requireParsedMibByName($mibName)
+    {
+        $db = $this->db();
+        $refId = MibUpload::getNewestUuidForName($mibName, $db);
+        $upload = MibUpload::load($refId, $db);
+        $mibFile = $this->getUploadedFile($upload);
+
+        return JsonString::decode($mibFile->get('parsed_mib'));
+    }
+
+    protected function requireMibFile(): MibFile
+    {
+        return MibFile::load(hex2bin($this->params->getRequired('checksum')), $this->db());
+    }
+
+    protected function getUploadedFile(MibUpload $upload)
+    {
+        return MibFile::load($upload->get('mib_file_checksum'), $this->db);
+    }
+
+    protected function requireOid()
+    {
+        return Formatting::cheatOidLookup($this->params->getRequired('oid'));
+    }
+
+    protected function assertValidOidOrShowError(string $oid): bool
+    {
+        if (!Formatting::isValidOid($oid)) {
+            $this->content()->add(Hint::error("'$oid' is not a valid OID"));
+            return false;
+        }
+
+        return true;
+    }
+
+    protected function addMibTitle($title, $mibName)
+    {
+        $this->addTitle($mibName . ': ' . $title);
+    }
+
+    protected function pre($content)
+    {
+        return Html::tag('pre', [
+            'style' => 'margin: 0; padding: 0;',
+        ], $content);
+    }
+
+    protected function mibTabs(MibFile $mibFile)
+    {
+        // $params = ['uuid' => Uuid::fromBytes($upload->get('mib_upload_uuid'))->toString()];
+        $params = ['checksum' => bin2hex($mibFile->get('mib_file_checksum'))];
+        $parsed = $mibFile->getParsedMib();
+        $tabs = $this->tabs()->add('process', [
+            'label' => $this->translate('Process MIB'),
+            'url'   => 'mibs/mib/process',
+            'urlParams' => $params
+        ]);
+
+        if (isset($parsed->nodes) && ! empty((array) $parsed->nodes)) {
+            $tabs->add('tree', [
+                'label' => $this->translate('Tree'),
+                'url'   => 'mibs/mib/tree',
+                'urlParams' => $params
+            ]);
+        }
+        if (isset($parsed->traps)) {
+            $tabs->add('traps', [
+                'label' => $this->translate('Traps'),
+                'url'   => 'mibs/mib/traps',
+                'urlParams' => $params
+            ]);
+        }
+        if (isset($parsed->types)) {
+            $tabs->add('types', [
+                'label' => $this->translate('Types'),
+                'url'   => 'mibs/mib/types',
+                'urlParams' => $params
+            ]);
+        }
+        if (isset($parsed->macros)) {
+            $tabs->add('macros', [
+                'label' => $this->translate('Macros'),
+                'url'   => 'mibs/mib/macros',
+                'urlParams' => $params
+            ]);
+        }
+
+        $tabs->add('raw', [
+            'label' => $this->translate('Raw MIB'),
+            'url'   => 'mibs/mib/raw',
+            'urlParams' => $params
+        ]);
+        if ($parsed) {
+            $tabs->add('parsed', [
+                'label' => $this->translate('Parsed MIB'),
+                'url'   => 'mibs/mib/parsed',
+                'urlParams' => $params
+            ]);
+        }
+
+        return $tabs;
     }
 }

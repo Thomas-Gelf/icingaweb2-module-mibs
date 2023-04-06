@@ -1,11 +1,11 @@
 <?php
 
-namespace Icinga\Module\Snmp;
+namespace Icinga\Module\Mibs;
 
 use Icinga\Exception\IcingaException;
-use Icinga\Module\Snmp\Web\Tree\MibTreeRenderer;
 use React\ChildProcess\Process;
 use React\EventLoop\Factory as Loop;
+use RuntimeException;
 
 class MibParser
 {
@@ -15,11 +15,11 @@ class MibParser
     {
         $binary = '/usr/bin/smilint';
         if (! file_exists($binary)) {
-            throw new IcingaException('%s not found', $binary);
+            throw new RuntimeException('%s not found', $binary);
         }
 
         $command = sprintf(
-            "exec %s '%s' -l 2",
+            "exec %s %s -l 2",
             $binary,
             escapeshellarg($filename)
         );
@@ -37,8 +37,8 @@ class MibParser
         $process->stderr->on('data', function ($string) use (& $buffer) {
             $buffer .= $string;
         });
-        $process->on('exit', function ($exitCode, $termSignal) use ($timer) {
-            $timer->cancel();
+        $process->on('exit', function ($exitCode, $termSignal) use ($timer, $loop) {
+            $loop->cancelTimer($timer);
             if ($exitCode === null) {
                 if ($termSignal === null) {
                     throw new IcingaException(
@@ -54,6 +54,7 @@ class MibParser
                     throw new IcingaException("Validator exited with $exitCode");
                 }
             }
+            $loop->stop();
         });
 
         $loop->run();
@@ -88,8 +89,8 @@ class MibParser
         $process->stderr->on('data', function ($string) use (& $errBuffer) {
             $errBuffer .= $string;
         });
-        $process->on('exit', function ($exitCode, $termSignal) use ($buffer, $errBuffer, $timer) {
-            $timer->cancel();
+        $process->on('exit', function ($exitCode, $termSignal) use (&$buffer, &$errBuffer, $timer, $loop) {
+            $loop->cancelTimer($timer);
             $out = [];
             if (! empty($buffer)) {
                 $out[] = "STDOUT: $buffer";
@@ -102,6 +103,7 @@ class MibParser
             } else {
                 $out = ': ' . implode(', ', $out);
             }
+            $loop->stop();
             if ($exitCode === null) {
                 if ($termSignal === null) {
                     throw new IcingaException(
@@ -123,68 +125,6 @@ class MibParser
 
         $loop->run();
         return json_decode($buffer);
-    }
-
-    public static function getHtmlTreeFromParsedMib($parsedMib)
-    {
-        $root = null;
-        $clone = [];
-        $seen = [];
-        $tree = $parsedMib->tree;
-        if (empty($tree)) {
-            return null;
-        }
-
-        foreach ($tree as $key => $members) {
-            foreach ($members as $id => $member) {
-                if (property_exists($tree, $member)) {
-                    $seen[$member] = $member;
-                }
-            }
-        }
-
-        foreach ($tree as $key => $members) {
-            if (! array_key_exists($key, $seen)) {
-                if ((string) $key === '0') {
-                    // zeroDotZero
-                    continue;
-                }
-                $root = $key;
-            }
-        }
-
-        if ($root === null) {
-            throw new IcingaException('Got no root node');
-        }
-
-        $clone[$root] = ['name' => $root, 'children' => [], 'path' => ".$root", 'oid' => ".$root"];
-        static::getMembers($clone[$root]['children'], $tree->$root, $tree, ".$root", ".$root");
-
-        return new MibTreeRenderer($clone[$root]);
-    }
-
-    protected static function getMembers(& $clone, $subTree, $tree, $namePath, $oidPath)
-    {
-        foreach ($subTree as $id => $key) {
-            $oid = "$oidPath.$id";
-            $names = "$namePath.$key";
-            if (property_exists($tree, $key)) {
-                $clone[$key] = [
-                    'name'     => $key,
-                    'oid'      => $oid,
-                    'path'     => $names,
-                    'children' => []
-                ];
-
-                static::getMembers($clone[$key]['children'], $tree->$key, $tree, $names, $oid);
-            } else {
-                $clone[$key] = [
-                    'name'     => $key,
-                    'oid'      => $oid,
-                    'path'     => $names,
-                ];
-            }
-        }
     }
 
     protected static function getCommandString()

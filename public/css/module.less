@@ -1,3 +1,60 @@
+table.common-table span.error {
+  color: @color-critical;
+  font-style: italic;
+}
+table.common-table td {
+  padding-top: 0.3em;
+  padding-bottom: 0.3em;
+}
+
+span.inline-description {
+  display: inline-block;
+  white-space: pre-wrap;
+  width: 100%;
+  max-height: 4em;
+  overflow-y: auto;
+  color: @text-color-light;
+  font-family: @font-family-fixed;
+  line-height: 1.5em;
+}
+pre {
+  font-size: 1em;
+}
+.ignore-on-select {
+  -webkit-user-select: none;
+  -ms-user-select: none;
+  user-select: none;
+}
+
+div.mib-stats {
+  width: 28em;
+  height: 28em;
+  background: @icinga-blue-dark;
+  padding-top: 5em;
+  display: inline-block;
+  .stats-title {
+    font-size: 2em;
+    text-align: center;
+    color: white;
+  }
+  .stats-main-number {
+    font-size: 4em;
+    text-align: center;
+    color: white;
+    margin-bottom: 1em;
+  }
+  .stats-sub-title {
+    font-size: 1.5em;
+    text-align: center;
+    color: white;
+  }
+  .stats-sub-numbers {
+    font-size: 2em;
+    text-align: center;
+    color: white;
+  }
+}
+
 /** From Director */
 div.action-bar a, div.action-bar form i {
   color: @icinga-blue;
@@ -48,12 +105,16 @@ table.common-table {
     margin: 0;
     padding: 0.2em;
     max-height: 18em;
-    background: @gray-lightest;
+    background: transparent; // @gray-lightest;
     overflow: auto;
     word-break: keep-all;
     white-space: pre;
     display: inline-block;
   }
+}
+
+table pre {
+  background: transparent;
 }
 
 form.quicksearch {

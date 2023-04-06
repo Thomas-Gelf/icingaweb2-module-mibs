@@ -18,7 +18,7 @@
         },
 
         rendered: function (event) {
-            $container = $(event.currentTarget);
+            var $container = $(event.currentTarget);
             if (this.isAdvancedUpload()) {
                 this.initializeFiles($container);
                 $container.find('.mib-drop-zone').on('change', this.droppedFiles);
