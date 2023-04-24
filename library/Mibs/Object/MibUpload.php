@@ -66,4 +66,19 @@ class MibUpload extends DbObject
                 ->limit(1)
         );
     }
+
+    public static function getNewestMibChecksumForName($name, Db $connection)
+    {
+        $db = $connection->getDbAdapter();
+
+        return $db->fetchOne(
+            $db->select()
+                ->from(['smu' => MibUpload::TABLE], 'sm.mib_checksum')
+                ->join(['smf' => MibFile::TABLE], 'smu.mib_file_checksum = smf.mib_file_checksum', [])
+                ->join(['sm' => Mib::TABLE], 'sm.mib_checksum = smf.mib_checksum', [])
+                ->where('sm.mib_name = ?', $name)
+                ->order('smu.ts_upload DESC')
+                ->limit(1)
+        );
+    }
 }
