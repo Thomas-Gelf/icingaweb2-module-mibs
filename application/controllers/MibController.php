@@ -6,6 +6,7 @@ use gipfl\IcingaWeb2\Link;
 use gipfl\IcingaWeb2\Widget\NameValueTable;
 use gipfl\Json\JsonString;
 use gipfl\Web\Widget\Hint;
+use Icinga\Application\Hook;
 use Icinga\Module\Mibs\ActionController;
 use Icinga\Module\Mibs\Formatting;
 use Icinga\Module\Mibs\Forms\MibForm;
@@ -15,11 +16,13 @@ use Icinga\Module\Mibs\Object\MibNode;
 use Icinga\Module\Mibs\Object\MibUpload;
 use Icinga\Module\Mibs\Object\Mib;
 use Icinga\Module\Mibs\Processing\ParsedMibProcessor;
+use Icinga\Module\Mibs\Web\Form\WalkForm;
 use Icinga\Module\Mibs\Web\Table\MibsTable;
 use Icinga\Module\Mibs\Web\Table\NodeDetailsTable;
 use Icinga\Module\Mibs\Web\Table\NodesTable;
 use Icinga\Module\Mibs\Web\Table\ObjectDetailsTable;
 use Icinga\Module\Mibs\Web\Tree\MibTreeRenderer;
+use Icinga\Web\Notification;
 use ipl\Html\Html;
 use ipl\Html\HtmlString;
 use ipl\Html\Table;
@@ -82,8 +85,21 @@ class MibController extends ActionController
     {
         $this->addSingleTab($this->translate('MIB Upload'));
         $this->addTitle($this->translate('Add SNMP MIB file(s)'));
-        $form = (new MibForm())->setDb($this->db())->handleRequest();
-        $this->content()->add($form)->addAttributes(['class' => 'icinga-module module-director']);
+        $form = (new MibForm($this->db()))->handleRequest($this->getServerRequest());
+        $count = $form->countUploadedFiles();
+        if ($count > 0) {
+            if ($count === 1) {
+                Notification::success($this->translate('MIB file has been enqueued'));
+                $this->redirectNow($this->url());
+            } else {
+                Notification::success(sprintf(
+                    $this->translate('%d MIB files have been enqueued'),
+                    $count
+                ));
+            }
+            $this->redirectNow($this->url());
+        }
+        $this->content()->add($form);
     }
 
     public function treeAction()
