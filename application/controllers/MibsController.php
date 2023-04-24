@@ -15,7 +15,10 @@ class MibsController extends ActionController
         if ($organization = $this->params->get('organization')) {
             $this->addSingleTab($this->translate('SNMP MIBs'));
             $table->filterOrganization($organization);
-            $this->addTitle(sprintf($this->translate('SNMP MIBs: %s'), $organization === MibOrganizationsTable::NULL ? $this->translate('(none)') : $organization));
+            $this->addTitle(sprintf(
+                $this->translate('SNMP MIBs: %s'),
+                $organization === MibOrganizationsTable::NULL ? $this->translate('(none)') : $organization
+            ));
         } else {
             $this->mainTabs()->activate('mibs');
             $this->addTitle($this->translate('SNMP MIBs'));

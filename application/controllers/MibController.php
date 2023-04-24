@@ -11,28 +11,71 @@ use Icinga\Module\Mibs\Formatting;
 use Icinga\Module\Mibs\Forms\MibForm;
 use Icinga\Module\Mibs\Object\MibFile;
 use Icinga\Module\Mibs\MibTree;
+use Icinga\Module\Mibs\Object\MibNode;
 use Icinga\Module\Mibs\Object\MibUpload;
 use Icinga\Module\Mibs\Object\Mib;
 use Icinga\Module\Mibs\Processing\ParsedMibProcessor;
 use Icinga\Module\Mibs\Web\Table\MibsTable;
+use Icinga\Module\Mibs\Web\Table\NodeDetailsTable;
 use Icinga\Module\Mibs\Web\Table\NodesTable;
 use Icinga\Module\Mibs\Web\Table\ObjectDetailsTable;
 use Icinga\Module\Mibs\Web\Tree\MibTreeRenderer;
 use ipl\Html\Html;
 use ipl\Html\HtmlString;
 use ipl\Html\Table;
-use Ramsey\Uuid\Uuid;
 
 class MibController extends ActionController
 {
+    /**
+     * @return string[]
+     */
+    protected function getMibFileChecksumsForMib(Mib $mib): array
+    {
+        $db = $this->db()->getDbAdapter();
+        $fileUuids = [];
+        $query = $db->select()
+            ->from(MibFile::TABLE, 'mib_file_checksum')
+            ->where('mib_checksum = ?', $mib->get('mib_checksum'));
+        return $db->fetchCol($query);
+    }
+
     public function indexAction()
     {
-        $this->addSingleTab('MIB');
         $mib = Mib::load(hex2bin($this->params->getRequired('checksum')), $this->db());
+        $mibChecksums = $this->getMibFileChecksumsForMib($mib);
+        if (empty($mibChecksums)) {
+            $this->addSingleTab($this->translate('MIB'));
+        } else {
+            $file = MibFile::load($this->getMibFileChecksumsForMib($mib)[0], $this->db());
+            $this->mibTabs($file, $mib)->activate('mib'); // TODO: This makes it slower, as tabs acces parsed mib
+        }
         $table = new NodesTable($mib);
         $total = (int) $this->db()->getDbAdapter()->fetchOne($table->select('COUNT(*)'));
         $this->addTitle(MibsTable::label($mib) . ': ' . sprintf($this->translate('contains %d OIDs'), $total));
         $this->showTable($table, $this->translate('There are no processed nodes in this MIB file'));
+    }
+
+    public function nodeAction()
+    {
+        $this->addSingleTab($this->translate('MIB Node'));
+        $nodeName = $this->params->get('node');
+        $mib = Mib::load(hex2bin($this->params->getRequired('mib')), $this->db());
+        $this->addTitle($mib->get('mib_name') . '::' . $nodeName);
+        $node = MibNode::load([
+            'mib_checksum' => $mib->get('mib_checksum'),
+            'object_name'  => $nodeName,
+        ], $this->db());
+        $this->content()->add(new NodeDetailsTable($node));
+
+        if ($implementation = Hook::first('mibs/SnmpScanTarget')) {
+            $walkForm = new WalkForm(
+                $node->get('oid'),
+                $this->Window()->getSessionNamespace('mibs'),
+                $implementation
+            );
+            $walkForm->handleRequest($this->getServerRequest());
+            $this->content()->add($walkForm);
+        }
     }
 
     public function uploadAction()
@@ -212,19 +255,19 @@ class MibController extends ActionController
 
         $dependencies = new NameValueTable();
         if (empty($parsed->imports)) {
-            $dependencies->addNameValueRow('-', 'This MIB has no IMPORTS / dependencies');
+            $dependencies->addNameValueRow('-', $this->translate('This MIB has no IMPORTS / dependencies'));
         } else {
             $dependencies->addNameValueRow(
-                Html::tag('strong', null, 'MIB'),
-                Html::tag('strong', null, 'Imported Objects')
+                Html::tag('strong', null, $this->translate('MIB')),
+                Html::tag('strong', null, $this->translate('Imported Objects'))
             );
             $imports = (array) $parsed->imports;
             ksort($imports);
             $db = $this->db();
             foreach ($imports as $import => $objects) {
-                if ($refId = MibUpload::getNewestUuidForName($import, $db)) {
-                    $import = Link::create($import, 'mibs/mib/process', [
-                        'uuid' => Uuid::fromBytes($refId)->toString()
+                if ($checksum = MibUpload::getNewestMibChecksumForName($import, $db)) {
+                    $import = Link::create($import, 'mibs/mib', [
+                        'checksum' => bin2hex($checksum)
                     ]);
                 }
 
@@ -232,9 +275,9 @@ class MibController extends ActionController
             }
         }
         $this->content()->add([
-            Html::tag('h3', 'Imports'),
+            Html::tag('h3', $this->translate('Imports')),
             $dependencies,
-            Html::tag('h3', 'Revisions'),
+            Html::tag('h3', $this->translate('Revisions')),
             $revisions,
         ]);
     }
@@ -244,7 +287,7 @@ class MibController extends ActionController
         $oid = $this->requireOid();
         $mibName = $this->params->getRequired('mibName');
         $name = $this->params->getRequired('name');
-        $this->addSingleTab('Object Details');
+        $this->addSingleTab($this->translate('Object Details'));
         $this->addTitle("$mibName::$name ($oid)");
         if (! $this->assertValidOidOrShowError($oid)) {
             return;
@@ -253,7 +296,11 @@ class MibController extends ActionController
         $mib = $this->requireParsedMibByName($mibName);
 
         if (!isset($mib->nodes->$name)) {
-            $this->content()->add(Hint::error("There is no $name node in $mibName"));
+            $this->content()->add(Hint::error(sprintf(
+                $this->translate("There is no %s node in %s"),
+                $name,
+                $mibName
+            )));
             return;
         }
 
@@ -268,7 +315,11 @@ class MibController extends ActionController
         $this->addSingleTab($this->translate('Trap Details'));
         $mib = $this->requireParsedMibByName($mibName);
         if (!isset($mib->traps->$name)) {
-            $this->content()->add(Hint::error("There is no $name trap in $mibName"));
+            $this->content()->add(Hint::error(sprintf(
+                $this->translate("There is no %s trap in %s"),
+                $name,
+                $mibName
+            )));
             return;
         }
         $trap = $mib->traps->$name;
@@ -347,13 +398,24 @@ class MibController extends ActionController
         ], $content);
     }
 
-    protected function mibTabs(MibFile $mibFile)
+    protected function mibTabs(MibFile $mibFile, ?Mib $mib = null)
     {
         // $params = ['uuid' => Uuid::fromBytes($upload->get('mib_upload_uuid'))->toString()];
+        $tabs = $this->tabs();
+        if ($mib === null && $mibChecksum = $mibFile->get('mib_checksum')) {
+            $mib = Mib::load($mibChecksum, $this->db());
+        }
+        if ($mib) {
+            $tabs->add('mib', [
+                'label' => $this->translate('MIB'),
+                'url'   => 'mibs/mib',
+                'urlParams' => ['checksum' => bin2hex($mib->get('mib_checksum'))],
+            ]);
+        }
         $params = ['checksum' => bin2hex($mibFile->get('mib_file_checksum'))];
         $parsed = $mibFile->getParsedMib();
-        $tabs = $this->tabs()->add('process', [
-            'label' => $this->translate('Process MIB'),
+        $tabs->add('process', [
+            'label' => $this->translate('MIB Header'),
             'url'   => 'mibs/mib/process',
             'urlParams' => $params
         ]);
