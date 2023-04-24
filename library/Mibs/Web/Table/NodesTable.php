@@ -61,7 +61,9 @@ class NodesTable extends ZfQueryBasedTable
             ],
             $row->oid,
             isset($row->description)
-                ? Html::tag('span', ['style' => 'display: inline-block; height: 1.5em; overflow: hidden'], preg_replace('/\n/', ' ', $row->description))
+                ? Html::tag('span', [
+                    'style' => 'display: inline-block; height: 1.5em; overflow: hidden'
+                  ], preg_replace('/\n/', ' ', $row->description))
                 : null,
         ]);
     }
@@ -137,6 +139,6 @@ class NodesTable extends ZfQueryBasedTable
             'smn.macro',
             'smn.table_index',
             'smn.depth',
-        ])->order('oid')->limit(100);
+        ])->order('oid')->limit(500);
     }
 }
