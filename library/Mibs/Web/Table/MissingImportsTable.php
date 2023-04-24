@@ -38,7 +38,8 @@ class MissingImportsTable extends ZfQueryBasedTable
                 'cnt_dependening_mibs' => 'COUNT(*)'
             ])->joinLeft(
                 ['smn' => Node::TABLE],
-                'smi.mib_checksum = smn.mib_checksum AND smi.object_name = smn.object_name', //  AND smn.oid IS NULL ?? Types?
+                //  AND smn.oid IS NULL ?? Types?
+                'smi.mib_checksum = smn.mib_checksum AND smi.object_name = smn.object_name',
                 []
             )->where('smn.oid IS NULL')
             ->group('smi.source_mib_name')

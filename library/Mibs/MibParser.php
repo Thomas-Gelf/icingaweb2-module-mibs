@@ -31,10 +31,10 @@ class MibParser
         $timer = $loop->addTimer(10, function () use ($process) {
             $process->terminate();
         });
-        $process->stdout->on('data', function ($string) use (& $buffer) {
+        $process->stdout->on('data', function ($string) use (&$buffer) {
             $buffer .= $string;
         });
-        $process->stderr->on('data', function ($string) use (& $buffer) {
+        $process->stderr->on('data', function ($string) use (&$buffer) {
             $buffer .= $string;
         });
         $process->on('exit', function ($exitCode, $termSignal) use ($timer, $loop) {
@@ -82,11 +82,11 @@ class MibParser
         $timer = $loop->addTimer(10, function () use ($process) {
             $process->terminate();
         });
-        $process->stdout->on('data', function ($string) use (& $buffer) {
+        $process->stdout->on('data', function ($string) use (&$buffer) {
             $buffer .= $string;
         });
         $errBuffer = '';
-        $process->stderr->on('data', function ($string) use (& $errBuffer) {
+        $process->stderr->on('data', function ($string) use (&$errBuffer) {
             $errBuffer .= $string;
         });
         $process->on('exit', function ($exitCode, $termSignal) use (&$buffer, &$errBuffer, $timer, $loop) {
@@ -120,6 +120,9 @@ class MibParser
                 }
             }
         });
+        // Workaround for problems with  DEFVAL { {  } }
+        // Parser exited with 1: STDOUT: Unable to parse MIB: Line 347: should be ::=
+        $string = preg_replace('/DEFVAL\s+\{\s+\{\s+}\s+}/', '', $string);
 
         $process->stdin->write("$string\n");
 

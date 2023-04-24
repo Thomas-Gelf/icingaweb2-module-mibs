@@ -63,7 +63,9 @@ class ParsedMibProcessor
                 'mib_name' => $tree->getName(),
                 'smi_version' => $identity ? 2 : 1,
                 'short_name' => $shortName, // (IDENTITY) snmpTargetMIB
-                'organization' => $this->cleanupOrganization(Formatting::stringCleanup($identity->organization ?? null)),
+                'organization' => $this->cleanupOrganization(
+                    Formatting::stringCleanup($identity->organization ?? null)
+                ),
                 'description'  => Formatting::stringCleanup($identity->description ?? null),
                 'contact_info' => Formatting::stringCleanup($identity->{'contact-info'} ?? null),
                 'last_updated' => Formatting::stringCleanup($identity->{'last-updated'} ?? ''),
@@ -134,7 +136,10 @@ class ParsedMibProcessor
                 }
                 foreach ($importedMibObjects as $objectName) {
                     if (! isset($loadedImports[$objectName])) {
-                        // printf("%s is missing %s::%s\n", $parsed->name ?? 'NO MIB NAME', $importMibName, $objectName);
+                        // printf(
+                        //     "%s is missing %s::%s\n",
+                        //     $parsed->name ?? 'NO MIB NAME', $importMibName, $objectName
+                        // );
                     }
                     if (isset($newImports[$objectName])) {
                         printf("Skipping duplicate import: %s -> %s\n", $parsed->name ?? 'NO MIB NAME', $objectName);
