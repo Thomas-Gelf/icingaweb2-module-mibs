@@ -1,7 +1,7 @@
 
 (function(Icinga) {
 
-    var Snmp = function(module) {
+    let Mibs = function(module) {
         this.module = module;
 
         this.initialize();
@@ -9,7 +9,7 @@
         this.module.icinga.logger.debug('Snmp module loaded');
     };
 
-    Snmp.prototype = {
+    Mibs.prototype = {
         initialize: function()
         {
             this.module.on('rendered', this.rendered);
@@ -18,7 +18,7 @@
         },
 
         rendered: function (event) {
-            var $container = $(event.currentTarget);
+            let $container = $(event.currentTarget);
             if (this.isAdvancedUpload()) {
                 this.initializeFiles($container);
                 $container.find('.mib-drop-zone').on('change', this.droppedFiles);
@@ -28,9 +28,9 @@
         },
 
         initializeFiles: function ($container) {
-            var droppedFiles = false;
-            var $dropZone = $container.find('.mib-drop-zone');
-            var $form = $dropZone.closest('form');
+            let droppedFiles = false;
+            let $dropZone = $container.find('.mib-drop-zone');
+            let $form = $dropZone.closest('form');
 
             $dropZone.on('drag dragstart dragend dragover dragenter dragleave drop', function(e) {
                 e.preventDefault();
@@ -45,11 +45,11 @@
                 .on('drop', function(e) {
                     droppedFiles = e.originalEvent.dataTransfer.files;
                     //console.log(droppedFiles);
-                    var $input = $form.find('input[type="file"]');
+                    let $input = $form.find('input[type="file"]');
                     $input.prop('files', droppedFiles);
                     $form.submit();
                     return;
-                    var ajaxData = new FormData($form.get(0));
+                    let ajaxData = new FormData($form.get(0));
 /*
                     if (droppedFiles) {
                         $.each( droppedFiles, function(i, file) {
@@ -82,7 +82,7 @@
         },
 
         isAdvancedUpload: function () {
-            var div = document.createElement('div');
+            let div = document.createElement('div');
             return (('draggable' in div)
                 || ('ondragstart' in div && 'ondrop' in div))
                 && 'FormData' in window && 'FileReader' in window;
@@ -92,9 +92,9 @@
             console.log('Triggered');
             event.preventDefault();
             event.stopPropagation();
-            var files = event.target.files;
+            let files = event.target.files;
             $('#drop').css('display', 'none');
-            for(var i = 0, len = files.length; i < len; i++) {
+            for(let i = 0, len = files.length; i < len; i++) {
                 if(files[i].type === 'text/plain' || files[i].type === ''){
                     $.ajax({
                         type: "POST",
@@ -106,13 +106,13 @@
                             "X-File-Type" : files[i].type
                         }
                     });
-                }else{
+                } else {
                     $('#info').append('Content type must be text/plain');
                 }
             }
         }
     };
 
-    Icinga.availableModules.snmp = Snmp;
+    Icinga.availableModules.mibs = Mibs;
 
 }(Icinga));
