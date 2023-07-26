@@ -1,5 +1,5 @@
-Icinga MIB Browser
-==================
+SNMP MIB Browser for Icinga
+===========================
 
 **WARNING**: This module is in an early stage and should not be used at all.
 
