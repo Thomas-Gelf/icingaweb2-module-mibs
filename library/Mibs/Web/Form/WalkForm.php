@@ -22,21 +22,28 @@ class WalkForm extends Form
     protected $oid;
     /** @var SessionNamespace */
     protected $session;
+    /** @var SessionNamespace */
+    protected $windowSession;
     /** @var SnmpScanTargetHook */
     protected $targetHook;
 
-    public function __construct(string $oid, SessionNamespace $session, SnmpScanTargetHook $targetHook)
+    public function __construct(string $oid, SessionNamespace $session, SessionNamespace $windowSession, SnmpScanTargetHook $targetHook)
     {
         $this->oid = $oid;
         $this->session = $session;
+        $this->windowSession = $windowSession;
         $this->targetHook = $targetHook;
     }
 
     protected function assemble()
     {
+        $target = $this->windowSession->get(self::SESSION_KEY_LAST_TARGET);
+        if ($target === null) {
+            $target = $this->session->get(self::SESSION_KEY_LAST_TARGET);
+        }
         $this->addElement('select', 'target', [
             'label'   => $this->translate('Target'),
-            'value'   => $this->session->get(self::SESSION_KEY_LAST_TARGET),
+            'value'   => $target,
             'options' => [null => $this->translate('- please choose -')] + $this->targetHook->enumTargets(),
             'class'   => 'autosubmit',
         ]);

@@ -23,6 +23,7 @@ use Icinga\Module\Mibs\Web\Table\NodesTable;
 use Icinga\Module\Mibs\Web\Table\ObjectDetailsTable;
 use Icinga\Module\Mibs\Web\Tree\MibTreeRenderer;
 use Icinga\Web\Notification;
+use Icinga\Web\Session;
 use ipl\Html\Html;
 use ipl\Html\HtmlString;
 use ipl\Html\Table;
@@ -73,6 +74,7 @@ class MibController extends ActionController
         if ($implementation = Hook::first('mibs/SnmpScanTarget')) {
             $walkForm = new WalkForm(
                 $node->get('oid'),
+                Session::getSession()->getNamespace('mibs'),
                 $this->Window()->getSessionNamespace('mibs'),
                 $implementation
             );
